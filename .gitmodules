@@ -1,0 +1,3 @@
+[submodule "WasmKit"]
+	path = WasmKit
+	url = git@github.com:holzschu/WasmKit.git

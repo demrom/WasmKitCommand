@@ -1,0 +1,111 @@
+//
+//  WasmKitCommand.swift
+//  WasmKitCommand
+//
+//  Created by Nicolas Holzschuch on 02/07/2026.
+//
+internal import WasmKit
+internal import WasmKitWASI
+internal import WASI
+internal import WAT
+import Foundation
+internal import SystemPackage
+import ios_system
+
+func convertCArguments(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?) -> [String]? {
+    
+    var args = [String]()
+    
+    for i in 0..<Int(argc) {
+        
+        guard let argC = argv?[i] else {
+            return nil
+        }
+        
+        let arg = String(cString: argC)
+        
+        args.append(arg)
+        
+    }
+    
+    return args
+}
+
+@_cdecl("wasmkit")
+public func wasmkit(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?) -> Int32 {
+    guard let args = convertCArguments(argc: argc, argv: argv) else {
+        fputs("Usage: wasmkit file.wasm\nExecutes webAssembly file.\n", thread_stdout)
+        return 0
+    }
+    guard args.count > 1  else {
+        fputs("Usage: wasmkit file.wasm\nExecutes webAssembly file.\n", thread_stdout)
+        return -1
+    }
+    
+    do {
+        // Parse a WASI-compliant WebAssembly module from a file.
+        let module = try parseWasm(filePath: String(args[1]))
+        
+        do {
+            // Create a WASI instance forwarding to the host environment.
+            var arguments = args
+            arguments.removeFirst()
+            if (arguments[0].hasSuffix(".wasm3")) {
+                arguments[0].removeLast(".wasm3".count)
+            }
+            var environment : [String : String] = [:]
+            if let localEnvironment = environmentAsArray() {
+                for variable in localEnvironment {
+                    if let envVar = variable as? String {
+                        let components = envVar.components(separatedBy:"=")
+                        if (components.count <= 1) {
+                            continue
+                        }
+                        let name = components[0]
+                        var value = envVar
+                        if (value.count > name.count + 1) {
+                            value.removeFirst(name.count + 1)
+                        } else {
+                            continue
+                        }
+                        environment[name] = value
+                    }
+                }
+            }
+            let currentDirectory = FileManager().currentDirectoryPath
+            let wasi = try WASIBridgeToHost(args: arguments,
+                                            environment: environment,
+                                            fileSystem: .host().withStdio(stdin:  fileno(thread_stdin),
+                                                                          stdout:  fileno(thread_stdout),
+                                                                          stderr:  fileno(thread_stderr))
+                                                .withPreopens([.init(guestPath: "/", hostPath: "/")])
+            )
+            // Start the WASI command-line application and close the bridge.
+            let exitCode = try wasi.runAndClose { wasi in
+                // Create engine and store
+                let engine = Engine()
+                let store = Store(engine: engine)
+                // Instantiate a parsed module importing WASI
+                var imports = Imports()
+                wasi.link(to: &imports, store: store)
+                let instance = try module.instantiate(store: store, imports: imports)
+                return try wasi.start(instance)
+            }
+            if (exitCode != 0) {
+                // fputs("wasmkit: \(String(cString: strerror(Int32(exitCode))), default: "unknown error \(exitCode)")\n", thread_stdout)
+            }
+            // Exit the Swift program with the WASI exit code.
+            return Int32(exitCode)
+        }
+        catch {
+            fputs("wasmkit: unable to create the bridge to host: \(error), \(error.localizedDescription).\n", thread_stderr)
+            return -1
+        }
+    }
+    catch {
+        fputs("wasmkit: unable to load and parse file \(args[1]): \(error)\n", thread_stderr)
+        return -1
+    }
+}
+
+
