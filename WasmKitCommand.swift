@@ -78,7 +78,7 @@ public func wasmkit(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer
                                             fileSystem: .host().withStdio(stdin:  fileno(thread_stdin),
                                                                           stdout:  fileno(thread_stdout),
                                                                           stderr:  fileno(thread_stderr))
-                                                .withPreopens([.init(guestPath: "/", hostPath: "/")])
+                                                .withPreopens([.init(guestPath: "/", hostPath: "/"),    .init(guestPath: "/dev", hostPath: "/dev")])
             )
             // Start the WASI command-line application and close the bridge.
             let exitCode = try wasi.runAndClose { wasi in
