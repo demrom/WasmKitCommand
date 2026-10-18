@@ -12,8 +12,10 @@ cp -R "$here/command-host/Sources/Runner" "$out/host/Sources/"
 cp "$source" "$out/host/Sources/WasmKitCommand/WasmKitCommand.swift"
 shim="$here/command-host/Sources/ios_system"
 xcrun clang -mmacosx-version-min=15.0 -c -fobjc-arc "$shim/streams.m" -I "$shim/include" -o "$out/streams.o"
-# Any wasm32-wasip1 C compiler works; Zig is one that needs no sysroot.
-uvx --from ziglang python -m ziglang cc -target wasm32-wasi -O2 "$here/tty-bridge/tty.c" -o "$out/tty.wasm"
+# Any wasm32-wasip1 C compiler works; Zig is one that needs no sysroot. Zig's default
+# 16 MiB initial memory is too much for a-Shell's ~35 MiB extension workers, hence the explicit limits.
+uvx --from ziglang python -m ziglang cc -target wasm32-wasi -O2 -Wl,-z,stack-size=65536 \
+	-Wl,--initial-memory=1048576 -Wl,--max-memory=16777216 "$here/tty-bridge/tty.c" -o "$out/tty.wasm"
 WASMKIT_SOURCE="$root/WasmKit" nice -n 15 swift build \
 	--package-path "$out/host" --scratch-path "$out/host-build" -j 2 \
 	--force-resolved-versions \
